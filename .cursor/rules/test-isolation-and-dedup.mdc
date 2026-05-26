@@ -1,0 +1,16 @@
+---
+description: Testing contract for poll deduplication and external API isolation
+alwaysApply: true
+---
+
+# Test Isolation and Dedup Contract
+
+When adding or modifying tests in this repository:
+
+- Never call live Open-Meteo in unit tests; use `monkeypatch` on `src.poller.fetch_weather` or fake `httpx` transport.
+- Include at least one poller-level dedup test where the same upstream reading appears in two poll cycles (see `tests/test_deduplication.py::test_duplicate_weather_payload_across_two_polls_stores_once_per_city`).
+- Assert dedup behavior at storage outcome level (row count per city via `SELECT COUNT(*)` on the `readings` table), not only helper return values.
+- Event detection tests in `tests/test_event_detection.py` must include at least one false-positive guard assertion (event must NOT fire for a given input).
+- API contract tests in `tests/test_api_contract.py` verify response shape for `/health`, `/readings`, and `/events`.
+- Keep tests deterministic by using fixed timestamps and explicit synthetic reading sequences.
+- All tests use `tmp_path` fixture with `monkeypatch.setattr(database, "DATABASE_PATH", ...)` to isolate from the real database.

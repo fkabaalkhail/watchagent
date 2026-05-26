@@ -1,0 +1,16 @@
+---
+description: Poller failure and retry logging contract for weather fetches
+alwaysApply: true
+---
+
+# Poller Failure Logging Contract
+
+When generating or editing weather poller code in this repository:
+
+- On fetch failure, log at `WARNING` level with the fields `city`, `status`, `retry`, and `error`.
+- The exact log format is: `logger.warning("poll fetch failed city=%s status=%s retry=%d/%d error=%s", ...)`.
+- Do not raise exceptions for transient fetch errors; continue polling other cities.
+- Retry Open-Meteo calls up to the configured `MAX_FETCH_RETRIES` limit (from `src/config.py`), with a 1-second `asyncio.sleep` backoff between retries, then return `None` and continue the loop.
+- The HTTP timeout per attempt is controlled by `FETCH_TIMEOUT_SECONDS` in `src/config.py`.
+- Keep the poll loop resilient: one city failure must not stop data collection for the other cities.
+- For duplicate readings (caught via `aiosqlite.IntegrityError` on the `UNIQUE(city, timestamp)` constraint), log at `DEBUG` level and skip inserts without throwing.

@@ -1,0 +1,23 @@
+---
+description: Enforce notable event schema and anti-noise behavior
+alwaysApply: true
+---
+
+# Event Record Shape and Noise Control
+
+When implementing event detection or event persistence:
+
+- Every emitted event must include: `city`, `timestamp`, `event_type`, `severity`, `description`, and JSON `details`.
+- `description` must explain why the event fired in plain language, not only threshold names.
+- `details` must include machine-readable supporting values (for example `delta`, `baseline`, `wind_speed_10m`).
+- Add or preserve cooldown logic via the `EVENT_COOLDOWN_HOURS` dict in `src/events.py`. Current cooldown values:
+  - `RAPID_TEMP_CHANGE`: 2 hours
+  - `EXTREME_WIND`: 3 hours
+  - `HEAVY_PRECIPITATION`: 3 hours
+  - `EXTREME_COLD`: 4 hours
+  - `EXTREME_HEAT`: 4 hours
+  - `CROSS_CITY_TEMP_DIVERGENCE`: 6 hours
+  - `CITY_TEMP_ANOMALY`: 4 hours
+- The `_passes_cooldown()` helper checks the last event timestamp for a given `(city, event_type)` pair against the cooldown window before allowing a new event to fire.
+- Event logic should combine at least one temporal signal (`_check_rapid_temp_change`, requiring `len(history) >= 2`) and one absolute/extreme signal (`_check_extreme_wind`, `_check_extreme_cold`).
+- Severity levels are graduated: `info`, `warning`, `critical`.
