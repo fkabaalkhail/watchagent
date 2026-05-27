@@ -25,23 +25,33 @@ FastAPI was selected because:
 
 ## Event Detection Design
 
-### Detection logic
+### Design philosophy
 
-The engine combines temporal, absolute, comparative, and city-calibrated signals:
+Infrastructure monitoring is about deciding what matters. The event engine is designed around three principles:
 
-- `RAPID_TEMP_CHANGE`: absolute temp shift >= 5 C over recent readings
-- `EXTREME_WIND`: wind >= 60 km/h
-- `HEAVY_PRECIPITATION`: precipitation >= 5 mm/hr
-- `EXTREME_COLD`: apparent temperature <= -25 C
-- `EXTREME_HEAT`: apparent temperature >= 35 C
-- `CROSS_CITY_TEMP_DIVERGENCE`: city temp differs by >= 15 C versus another monitored city
-- `CITY_TEMP_ANOMALY`: current city temp departs from that city's recent baseline by a city-specific threshold
+1. **Multi-dimensional signals**: A single threshold check is shallow. Real weather awareness requires combining absolute extremes, rate-of-change, cross-city comparison, city-calibrated baselines, and WMO condition codes.
+2. **Noise suppression over sensitivity**: A system that fires constantly is worse than one that fires never — alert fatigue kills monitoring. Every event type has a cooldown window, and temporal signals require minimum history.
+3. **Context-aware thresholds**: The same temperature means different things in different cities. Vancouver's maritime climate has a narrow range (7°C anomaly threshold), while Ottawa's continental extremes require a wider band (10°C) to avoid false positives.
+
+### Detection rules (8 event types)
+
+| Event Type | Signal Class | Threshold | Rationale |
+|---|---|---|---|
+| `RAPID_TEMP_CHANGE` | Temporal + rate | ≥5°C delta AND ≥1.5°C/hr rate within 6h window | Environment Canada issues special weather statements for rapid temperature changes. Rate-based detection avoids false positives from normal diurnal variation. |
+| `EXTREME_WIND` | Absolute | ≥60 km/h (warning), ≥90 km/h (critical) | Environment Canada wind warning threshold is 60 km/h for most regions. 90 km/h approaches hurricane-force gusts. |
+| `HEAVY_PRECIPITATION` | Absolute | ≥5 mm/hr (warning), ≥15 mm/hr (critical) | 5 mm/hr sustained causes urban drainage stress. 15 mm/hr triggers flash flood risk per EC rainfall warnings. |
+| `EXTREME_COLD` | Absolute | Apparent temp ≤-25°C (warning), ≤-35°C (critical) | Frostbite risk begins at -25°C wind chill per Health Canada guidelines. -35°C is "extreme cold" warning level. |
+| `EXTREME_HEAT` | Absolute | Apparent temp ≥35°C (warning), ≥40°C (critical) | Ontario heat warning threshold is 31°C humidex sustained; 35°C apparent is conservative. 40°C is dangerous heat. |
+| `SEVERE_WEATHER_CODE` | WMO condition | Codes ≥65 (warning), ≥95 (critical) | WMO codes encode conditions (thunderstorms, freezing rain, heavy snow) that warrant advisories regardless of numeric thresholds. Uses the weather_code field that other rules ignore. |
+| `CROSS_CITY_TEMP_DIVERGENCE` | Comparative | ≥15°C difference between any two cities | A 15°C spread across cities in the same country at the same time indicates a significant weather boundary (e.g., Arctic front reaching Ottawa but not Vancouver). |
+| `CITY_TEMP_ANOMALY` | City-calibrated | Deviation from recent baseline exceeds per-city threshold | Ottawa: 10°C, Toronto: 9°C, Vancouver: 7°C. Vancouver is stricter because its maritime climate rarely deviates; the same threshold would never fire. |
 
 ### Noise control strategy
 
-- Every event type has a cooldown window, so persistent conditions do not emit every hour.
-- Event firing requires context (recent history) for change/anomaly signals.
-- Thresholds for city anomaly differ by city (`Vancouver` stricter, `Ottawa` less strict) to reflect different climates.
+- **Per-event cooldowns** (2–6 hours): Persistent conditions (e.g., a cold snap lasting days) emit once, not every hour. Cooldown is checked against the last event of the same `(city, event_type)` pair.
+- **Rate-based temporal detection**: `RAPID_TEMP_CHANGE` requires both absolute magnitude (≥5°C) AND rate (≥1.5°C/hr), preventing false positives from gradual diurnal warming.
+- **Minimum history requirements**: Anomaly and temporal rules require 2–4 prior readings before firing, avoiding spurious events on service startup.
+- **Graduated severity**: Each event type has info → warning → critical tiers, allowing consumers to filter by urgency.
 
 ### Event record shape
 
@@ -154,11 +164,20 @@ Run unit tests:
 pytest -q
 ```
 
+Run linter:
+
+```bash
+ruff check .
+```
+
 Coverage focus:
 
-- deduplication by city+timestamp
-- event detection semantics and cooldown suppression
-- `/health`, `/readings`, `/events` response shape
+- **Deduplication**: same reading inserted twice stores only one row; poller-level dedup across two poll cycles
+- **Event detection (isolated)**: each of the 8 event types tested individually with both positive and false-positive-guard assertions
+- **Cooldown**: events suppressed within window, re-fire after expiry
+- **Cross-city divergence**: fires on large difference, silent when cities are close
+- **Severe weather code**: fires on thunderstorm/snow/freezing rain, silent on clear/mild codes
+- **API shape**: `/health`, `/readings`, `/events` return correct structure for seeded data
 
 All tests mock external dependencies by avoiding live Open-Meteo calls.
 
@@ -166,8 +185,9 @@ All tests mock external dependencies by avoiding live Open-Meteo calls.
 
 GitHub Actions workflow (`.github/workflows/ci.yml`) runs on every push to `main` with:
 
-1. **Test job**: installs dependencies and runs `pytest -q`
-2. **Build job**: runs `docker build -t watchagent:ci .`
+1. **Lint job**: runs `ruff check .` for code quality and import ordering
+2. **Test job**: installs dependencies and runs `pytest -q`
+3. **Build job**: runs `docker build -t watchagent:ci .`
 
 ## Cursor Setup
 
