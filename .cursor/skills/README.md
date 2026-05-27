@@ -28,7 +28,7 @@ Sample output (empty DB):
 
 ## `replay_event_candidates.py`
 
-Utility skill to inspect raw readings for candidate event triggers before cooldown suppression. Covers all 7 event types including temporal (RAPID_TEMP_CHANGE), comparative (CROSS_CITY_TEMP_DIVERGENCE), and city-calibrated (CITY_TEMP_ANOMALY).
+Utility skill to inspect raw readings for candidate event triggers before cooldown suppression. Covers all 8 event types including temporal (RAPID_TEMP_CHANGE), comparative (CROSS_CITY_TEMP_DIVERGENCE), city-calibrated (CITY_TEMP_ANOMALY), and WMO condition-based (SEVERE_WEATHER_CODE).
 
 Parameters:
 - `--db` (required): path to SQLite database

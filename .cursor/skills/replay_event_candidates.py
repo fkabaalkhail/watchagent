@@ -3,7 +3,7 @@
 Replay helper skill for event analysis.
 
 Scans recent readings and prints candidate rows that would match high-signal
-thresholds before cooldown is considered. Covers all 7 event types.
+thresholds before cooldown is considered. Covers all 8 event types.
 """
 
 from __future__ import annotations
@@ -11,16 +11,17 @@ from __future__ import annotations
 import argparse
 import json
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 THRESHOLDS = {
     "EXTREME_WIND": {"wind_speed_10m_gte": 60},
     "HEAVY_PRECIPITATION": {"precipitation_gte": 5},
     "EXTREME_COLD": {"apparent_temperature_lte": -25},
     "EXTREME_HEAT": {"apparent_temperature_gte": 35},
-    "RAPID_TEMP_CHANGE": {"temp_delta_gte": 5, "requires_history": 2},
+    "RAPID_TEMP_CHANGE": {"temp_delta_gte": 5, "rate_per_hour_gte": 1.5, "requires_history": 2},
     "CROSS_CITY_TEMP_DIVERGENCE": {"cross_city_diff_gte": 15},
     "CITY_TEMP_ANOMALY": {"baseline_deviation_gte": {"Ottawa": 10, "Toronto": 9, "Vancouver": 7}},
+    "SEVERE_WEATHER_CODE": {"weather_code_gte": 65},
 }
 
 
@@ -48,6 +49,7 @@ def main() -> None:
             "HEAVY_PRECIPITATION": [],
             "EXTREME_COLD": [],
             "EXTREME_HEAT": [],
+            "SEVERE_WEATHER_CODE": [],
             "RAPID_TEMP_CHANGE": [],
             "CROSS_CITY_TEMP_DIVERGENCE": [],
             "CITY_TEMP_ANOMALY": [],
@@ -62,7 +64,7 @@ def main() -> None:
         time_filter = ""
         params_extra: tuple = ()
         if args.hours > 0:
-            since = (datetime.now(timezone.utc) - timedelta(hours=args.hours)).strftime("%Y-%m-%dT%H:%M")
+            since = (datetime.now(UTC) - timedelta(hours=args.hours)).strftime("%Y-%m-%dT%H:%M")
             time_filter = " AND timestamp >= ?"
             params_extra = (since,)
 
@@ -97,6 +99,10 @@ def main() -> None:
                 if row["apparent_temperature"] >= 35:
                     result["candidates"]["EXTREME_HEAT"].append(
                         {"city": city, "timestamp": row["timestamp"], "apparent_temperature": row["apparent_temperature"]}
+                    )
+                if row["weather_code"] >= 65:
+                    result["candidates"]["SEVERE_WEATHER_CODE"].append(
+                        {"city": city, "timestamp": row["timestamp"], "weather_code": row["weather_code"]}
                     )
 
             # RAPID_TEMP_CHANGE: check consecutive pairs

@@ -1,7 +1,8 @@
-import logging
 import json
+import logging
 from datetime import datetime, timedelta
-from src.database import get_recent_readings, insert_event, get_latest_event
+
+from src.database import get_latest_event, get_recent_readings, insert_event
 
 logger = logging.getLogger(__name__)
 
@@ -9,6 +10,29 @@ CITY_ANOMALY_THRESHOLDS = {
     "Ottawa": 10.0,
     "Toronto": 9.0,
     "Vancouver": 7.0,
+}
+
+# WMO weather codes that indicate severe conditions.
+# Reference: https://open-meteo.com/en/docs (WMO Code Table)
+# 65+ heavy rain, 67 freezing rain heavy, 71+ snow, 75+ heavy snow,
+# 77 snow grains, 82 violent rain showers, 85/86 snow showers,
+# 95 thunderstorm, 96/99 thunderstorm with hail.
+SEVERE_WEATHER_CODES: dict[int, str] = {
+    65: "heavy rain",
+    66: "light freezing rain",
+    67: "heavy freezing rain",
+    71: "slight snowfall",
+    73: "moderate snowfall",
+    75: "heavy snowfall",
+    77: "snow grains",
+    80: "slight rain showers",
+    81: "moderate rain showers",
+    82: "violent rain showers",
+    85: "slight snow showers",
+    86: "heavy snow showers",
+    95: "thunderstorm",
+    96: "thunderstorm with slight hail",
+    99: "thunderstorm with heavy hail",
 }
 
 EVENT_COOLDOWN_HOURS = {
@@ -19,6 +43,7 @@ EVENT_COOLDOWN_HOURS = {
     "EXTREME_HEAT": 4,
     "CROSS_CITY_TEMP_DIVERGENCE": 6,
     "CITY_TEMP_ANOMALY": 4,
+    "SEVERE_WEATHER_CODE": 3,
 }
 
 
@@ -46,6 +71,7 @@ async def evaluate_events(db, city: str, current: dict):
     events += _check_heavy_precipitation(city, current)
     events += _check_extreme_cold(city, current)
     events += _check_extreme_heat(city, current)
+    events += _check_severe_weather_code(city, current)
     events += _check_city_temp_anomaly(city, current, history)
     events += await _check_cross_city_divergence(db, city, current)
 
@@ -60,18 +86,44 @@ async def evaluate_events(db, city: str, current: dict):
 def _check_rapid_temp_change(city: str, current: dict, history: list[dict]) -> list[dict]:
     if len(history) < 2:
         return []
-    oldest_temp = history[0]["temperature_2m"]
+    # Time-aware: compute actual elapsed hours between oldest history reading and current.
+    oldest = history[0]
+    oldest_temp = oldest["temperature_2m"]
     current_temp = current["temperature_2m"]
     delta = current_temp - oldest_temp
-    if abs(delta) >= 5.0:
+
+    elapsed_hours = 0.0
+    try:
+        elapsed = _timestamp_to_dt(current["timestamp"]) - _timestamp_to_dt(oldest["timestamp"])
+        elapsed_hours = elapsed.total_seconds() / 3600.0
+    except (ValueError, TypeError):
+        elapsed_hours = len(history)  # fallback: treat each reading as ~1 hour
+
+    # A 5°C change is notable only if it happened within a 6-hour window.
+    # Larger windows dilute the signal (gradual diurnal change is normal).
+    if elapsed_hours > 6.0 or elapsed_hours <= 0:
+        return []
+
+    # Scale threshold: require at least 5°C, but rate must exceed 1.5°C/hr
+    rate = abs(delta) / max(elapsed_hours, 0.5)
+    if abs(delta) >= 5.0 and rate >= 1.5:
         direction = "rose" if delta > 0 else "dropped"
         return [{
             "city": city,
             "timestamp": current["timestamp"],
             "event_type": "RAPID_TEMP_CHANGE",
             "severity": "warning" if abs(delta) >= 8.0 else "info",
-            "description": f"Temperature {direction} {abs(delta):.1f}°C over recent readings (from {oldest_temp}°C to {current_temp}°C)",
-            "details": json.dumps({"delta": delta, "from": oldest_temp, "to": current_temp}),
+            "description": (
+                f"Temperature {direction} {abs(delta):.1f}°C in {elapsed_hours:.1f}h "
+                f"(from {oldest_temp}°C to {current_temp}°C, rate {rate:.1f}°C/hr)"
+            ),
+            "details": json.dumps({
+                "delta": delta,
+                "from": oldest_temp,
+                "to": current_temp,
+                "elapsed_hours": round(elapsed_hours, 2),
+                "rate_per_hour": round(rate, 2),
+            }),
         }]
     return []
 
@@ -134,6 +186,32 @@ def _check_extreme_heat(city: str, current: dict) -> list[dict]:
             "details": json.dumps({"apparent_temperature": apparent}),
         }]
     return []
+
+
+def _check_severe_weather_code(city: str, current: dict) -> list[dict]:
+    """Detect severe weather using WMO weather codes from Open-Meteo.
+
+    Codes >= 65 indicate conditions that warrant attention: heavy rain,
+    freezing rain, heavy snow, thunderstorms, and hail. These are conditions
+    that Environment Canada would typically issue advisories for.
+    """
+    code = current.get("weather_code")
+    if code is None:
+        return []
+    if code not in SEVERE_WEATHER_CODES:
+        return []
+
+    condition = SEVERE_WEATHER_CODES[code]
+    # Thunderstorms and hail are critical; heavy precipitation/snow are warnings.
+    severity = "critical" if code >= 95 else "warning"
+    return [{
+        "city": city,
+        "timestamp": current["timestamp"],
+        "event_type": "SEVERE_WEATHER_CODE",
+        "severity": severity,
+        "description": f"Severe weather condition: {condition} (WMO code {code})",
+        "details": json.dumps({"weather_code": code, "condition": condition}),
+    }]
 
 
 def _check_city_temp_anomaly(city: str, current: dict, history: list[dict]) -> list[dict]:

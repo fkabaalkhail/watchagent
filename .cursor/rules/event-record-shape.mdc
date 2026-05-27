@@ -18,6 +18,7 @@ When implementing event detection or event persistence:
   - `EXTREME_HEAT`: 4 hours
   - `CROSS_CITY_TEMP_DIVERGENCE`: 6 hours
   - `CITY_TEMP_ANOMALY`: 4 hours
+  - `SEVERE_WEATHER_CODE`: 3 hours
 - The `_passes_cooldown()` helper checks the last event timestamp for a given `(city, event_type)` pair against the cooldown window before allowing a new event to fire.
 - Event logic should combine at least one temporal signal (`_check_rapid_temp_change`, requiring `len(history) >= 2`) and one absolute/extreme signal (`_check_extreme_wind`, `_check_extreme_cold`).
 - Severity levels are graduated: `info`, `warning`, `critical`.
