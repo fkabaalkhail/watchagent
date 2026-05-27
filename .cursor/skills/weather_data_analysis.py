@@ -12,7 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from statistics import mean
 
 
@@ -127,7 +127,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     since = now - timedelta(hours=args.hours)
     since_iso = since.strftime("%Y-%m-%dT%H:%M")
     question = args.question.lower()

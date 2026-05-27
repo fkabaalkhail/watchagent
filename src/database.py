@@ -1,5 +1,7 @@
-import aiosqlite
 import os
+
+import aiosqlite
+
 from src.config import DATABASE_PATH
 
 SCHEMA = """

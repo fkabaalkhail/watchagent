@@ -1,11 +1,13 @@
 import asyncio
 import logging
+
 import httpx
+
 from src.config import (
     CITIES,
-    POLL_INTERVAL_SECONDS,
-    MAX_FETCH_RETRIES,
     FETCH_TIMEOUT_SECONDS,
+    MAX_FETCH_RETRIES,
+    POLL_INTERVAL_SECONDS,
 )
 from src.database import get_db, insert_reading
 from src.events import evaluate_events

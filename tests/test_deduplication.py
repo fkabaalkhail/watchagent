@@ -1,7 +1,6 @@
 import pytest
 
-from src import database
-from src import poller
+from src import database, poller
 
 
 @pytest.mark.asyncio

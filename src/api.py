@@ -1,11 +1,12 @@
 import asyncio
 import logging
-from contextlib import asynccontextmanager
-from contextlib import suppress
+from contextlib import asynccontextmanager, suppress
+
 from fastapi import FastAPI, Query
-from src.database import get_db, get_readings, get_events, count_readings, count_events
-from src.poller import run_poller
+
 from src.config import ENABLE_POLLER
+from src.database import count_events, count_readings, get_db, get_events, get_readings
+from src.poller import run_poller
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
